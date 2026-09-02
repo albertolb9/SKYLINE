@@ -61,3 +61,37 @@ If code conflicts with a locked spec, the spec wins until the decision is delibe
 ## Current implementation gate
 
 **Do not start production integration yet.** The first coding target is the deterministic greybox defined in `docs/PROTOTYPE_V1.md`. The prototype exists to answer one question: **does the tower create continuous tension with very low systemic complexity?**
+
+## Prototype tooling (P0 bootstrap)
+
+Plain Vite + Svelte 5 app (no SvelteKit — single canvas view, no routing/SSR needed), PixiJS 8 renderer, TypeScript strict mode, Vitest for pure unit tests, Storybook for the fixture/QA dev surface. Single pnpm package, not a TurboRepo monorepo (SKYLINE is one game; `docs/ARCHITECTURE.md` §3 already specifies a single `src/` module tree).
+
+Versions verified against `github.com/StakeEngine/web-sdk` per `docs/STAKE_ENGINE_RULES.md` SE-021 on 2026-09-02, then pinned exact (no `^`/`~`) in `package.json` to the versions `pnpm-lock.yaml` actually resolved, for reproducible installs:
+
+| Tool | Version |
+|---|---|
+| Node | `>=22.16.0` |
+| pnpm | `10.5.0` |
+| Svelte | `5.57.0` |
+| PixiJS | `8.20.1` |
+| Vite | `6.4.3` |
+| TypeScript | `5.9.3` |
+| Vitest | `3.2.7` |
+| Storybook | `9.1.20` (framework: `@storybook/svelte-vite`, the Vite-only counterpart to the official SDK's `@storybook/sveltekit` — SKYLINE has no SvelteKit app to target) |
+| ESLint | `9.39.5` (flat config) |
+| Prettier | `3.9.6` |
+
+No dedicated unit-test runner exists in the official Web SDK (it relies on Storybook/Chromatic); Vitest was added here because `docs/TEST_PLAN.md` and `docs/REQUIREMENTS.md` (QA-001–003) require pure unit tests for math/schema/PRNG/determinism independent of visual fixtures.
+
+Commands:
+
+```
+pnpm install
+pnpm dev             # local dev server, empty Pixi stage
+pnpm build            # static production bundle
+pnpm test             # Vitest unit tests
+pnpm typecheck         # svelte-check, strict mode
+pnpm lint / pnpm format
+pnpm storybook          # fixture/component dev surface
+pnpm build-storybook
+```
