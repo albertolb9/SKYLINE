@@ -76,7 +76,7 @@ Create at least these named Books:
 4. `weak-survive-050x`
 5. `clean-survive-150x`
 6. `wobble-win-5x`
-7. `near-death-win-25x`
+7. `near-death-win-20x`
 8. `big-climb-100x`
 9. `space-run-1000x`
 10. `space-run-5000x`
