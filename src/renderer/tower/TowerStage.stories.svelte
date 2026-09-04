@@ -6,6 +6,7 @@
     cleanSurvive150x,
     quickCollapseStreet0x,
     weakSurvive050x,
+    wobbleWin5x,
   } from '../../test-fixtures/books';
 
   const { Story } = defineMeta({
@@ -27,10 +28,17 @@
 <Story name="Clean Survive 1.50x" args={{ book: cleanSurvive150x }} />
 
 <!--
-  17 blocks, reaches Atmosphere. Tall enough to exercise P4's minimal camera follow (the safe
+  17 blocks, reaches Atmosphere. Tall enough to exercise the minimal camera follow (the safe
   band is crossed at ordinal 17 under the default mobile-viewport tuning — see
-  transforms.test.ts). Also contains wobble/nearFall blocks, which P4 renders as plain drops to
-  their authored placement with no drama — a deliberate, documented temporary greybox policy
-  (docs/work/TASK-P4-basic-renderer.md), not a bug.
+  transforms.test.ts) alongside a real P5 wobble block. Also contains a nearFall block, which
+  still renders as a plain drop with no drama — a deliberate, documented P6 deferral
+  (docs/work/TASK-P5-wobble-recovery.md), not a bug.
 -->
 <Story name="Big Climb 100x (camera follow)" args={{ book: bigClimb100x }} />
+
+<!--
+  6 blocks, resolves 5x in Sky. Three wobble beats (direction -1, +1, -1; intensity 2, 2, 3),
+  each followed by continued clean/offset construction before the eventual survive — the core P5
+  proof: block lands, visibly wobbles, recovers, and the tower keeps building.
+-->
+<Story name="Wobble Win 5x" args={{ book: wobbleWin5x }} />

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LogicalBlock } from '../../tower/model';
+import type { LogicalBlock, TowerModel } from '../../tower/model';
 import { playBookEvents } from '../../book/player';
-import { cleanSurvive150x, quickCollapseStreet0x, weakSurvive050x } from '../../test-fixtures/books';
+import { cleanSurvive150x, quickCollapseStreet0x, weakSurvive050x, wobbleWin5x } from '../../test-fixtures/books';
 import { createDeferred } from '../../test-fixtures/tests/recordingHandlerMap';
 import type { TowerRenderer } from './createTowerRenderer';
 
@@ -15,7 +15,7 @@ vi.mock('../../tower/model', async (importOriginal) => {
   return { ...actual, applyTowerEvent: vi.fn(actual.applyTowerEvent) };
 });
 
-const { applyTowerEvent } = await import('../../tower/model');
+const { applyTowerEvent, buildTowerModel, fingerprintTowerModel } = await import('../../tower/model');
 const { createTowerEventHandlers } = await import('./createTowerEventHandlers');
 const applyTowerEventSpy = vi.mocked(applyTowerEvent);
 
@@ -108,5 +108,20 @@ describe('createTowerEventHandlers — deterministic replay', () => {
     await playBookEvents(book, createTowerEventHandlers(second.renderer));
 
     expect(second.calls).toEqual(first.calls);
+  });
+});
+
+describe('createTowerEventHandlers — logical fingerprint parity', () => {
+  it('the live-playback model fingerprints identically to buildTowerModel for the same Book (P5 exit criterion)', async () => {
+    const book = wobbleWin5x; // exercises real wobble blocks, not just clean/offset
+    applyTowerEventSpy.mockClear();
+    const { renderer } = createRecordingRenderer();
+
+    await playBookEvents(book, createTowerEventHandlers(renderer));
+
+    // applyTowerEvent is pure, so its last invocation's return value IS the final live-playback
+    // model — the only way to observe it without adding a getModel accessor to production code.
+    const liveModel = applyTowerEventSpy.mock.results.at(-1)?.value as TowerModel;
+    expect(fingerprintTowerModel(liveModel)).toBe(fingerprintTowerModel(buildTowerModel(book)));
   });
 });
