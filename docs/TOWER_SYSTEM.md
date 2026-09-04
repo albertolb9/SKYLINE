@@ -15,7 +15,7 @@ This is not a realistic structural physics simulator. It is a controlled animati
 - Logical block width: **10,000 units**.
 - Logical block height: **4,000 units**.
 - Tower horizontal origin: `0`.
-- Event `offsetU` is an integer horizontal placement relative to the intended center/support position.
+- `block.offsetU` is the block center's **absolute** horizontal displacement from the fixed tower origin (U=0). It is not a delta from the previous block's position. (V1 clarification of previously underspecified wording — see DECISIONS.md D-036.)
 - Renderer maps logical units to device pixels from current viewport scale.
 
 A Book therefore has identical logical geometry on mobile and desktop.

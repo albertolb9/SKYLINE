@@ -40,6 +40,7 @@
 | D-033 | OPEN | Autoplay in production. Do not implement in prototype. |
 | D-034 | OPEN | Turbo/Fastplay in production. Do not implement in prototype. |
 | D-035 | LOCKED | SDD/repository documents, not chat history, govern implementation. Claude implements specs rather than inventing product. |
+| D-036 | ACCEPTED | `block.offsetU` is an absolute horizontal displacement from the fixed tower origin (U=0), not cumulative/relative to the previous block. |
 
 ## Decision details
 
@@ -62,6 +63,10 @@
 ### D-016 — Height Distribution
 **Reason:** Height is presentation/narrative allocation layered on top of the locked economics. It may be tuned for game feel without changing payout probabilities.  
 **Constraint:** Moon exclusivity may not be tuned.
+
+### D-036 — offsetU is absolute, not cumulative
+**Reason:** TOWER_SYSTEM.md §3's original phrasing ("relative to the intended center/support position") was genuinely ambiguous between an absolute-from-origin reading and a delta-from-previous-block reading. P4 (renderer) needed this resolved explicitly before the logical→pixel transform could be implemented; the ambiguity was not decided by the prior wording alone.
+**Impact:** Renderer computes `pixelX = originX + offsetU × scale` per block, independently of every other block — no running horizontal accumulation is threaded between blocks. Does not change P3's `LogicalBlock`/`TowerModel` shape: `offsetU` was already stored as-is; this clarifies only how the renderer interprets that already-stored value.
 
 ### D-028 / D-030 — Round closing
 **Reason:** Current official Stake sources distinguish automatic close, `end-round`, and bet-type timing. This is platform-sensitive.  
