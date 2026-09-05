@@ -6,9 +6,24 @@
 // itself and never calls buildTowerModel (a test/tooling convenience, not a production path).
 
 import { applyTowerEvent, INITIAL_TOWER_MODEL, type TowerModel } from '../../tower/model';
-import type { BookEvent } from '../../book/schema';
+import type { Book, BookEvent } from '../../book/schema';
 import type { BookEventHandler, BookEventHandlerMap } from '../../book/player';
 import type { TowerRenderer } from './createTowerRenderer';
+import type { NearFallResolution } from './nearFall';
+
+/**
+ * P6 visual-intent classification (docs/work/TASK-P6-near-fall.md §G): a nearFall holds only
+ * when the IMMEDIATE next Book event is `collapse` -- a single next-index check, never a forward
+ * scan, never a function of the eventual terminal outcome/payoutMultiplier/offsetU/rotationMd/
+ * intensity/direction/physics. `validateBook` already guarantees `event.index` equals array
+ * position for every event in any Book that reached this layer, so indexing `book.events` by
+ * `blockEventIndex + 1` is exact. A missing next event (structurally impossible for a Book that
+ * already passed validation, since every Book ends in `finalWin`) defensively defaults to the
+ * strictly safer `'recover'` via optional chaining -- never a new validation rule.
+ */
+export function classifyNearFallResolution(book: Book, blockEventIndex: number): NearFallResolution {
+  return book.events[blockEventIndex + 1]?.type === 'collapse' ? 'holdForCollapse' : 'recover';
+}
 
 export function createTowerEventHandlers(renderer: TowerRenderer): BookEventHandlerMap {
   let model: TowerModel = INITIAL_TOWER_MODEL;
@@ -19,10 +34,12 @@ export function createTowerEventHandlers(renderer: TowerRenderer): BookEventHand
 
   return {
     towerStart: advanceOnly,
-    block: async (event) => {
+    block: async (event, context) => {
       model = applyTowerEvent(model, event);
       const block = model.blocks[model.blocks.length - 1];
-      await renderer.addBlock(block);
+      const nearFallResolution =
+        block.behavior === 'nearFall' ? classifyNearFallResolution(context.book, event.index) : undefined;
+      await renderer.addBlock(block, nearFallResolution);
     },
     zoneChange: advanceOnly,
     collapse: advanceOnly,

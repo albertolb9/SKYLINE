@@ -4,6 +4,7 @@
   import {
     bigClimb100x,
     cleanSurvive150x,
+    nearDeathWin20x,
     quickCollapseStreet0x,
     weakSurvive050x,
     wobbleWin5x,
@@ -30,9 +31,9 @@
 <!--
   17 blocks, reaches Atmosphere. Tall enough to exercise the minimal camera follow (the safe
   band is crossed at ordinal 17 under the default mobile-viewport tuning — see
-  transforms.test.ts) alongside a real P5 wobble block. Also contains a nearFall block, which
-  still renders as a plain drop with no drama — a deliberate, documented P6 deferral
-  (docs/work/TASK-P5-wobble-recovery.md), not a bug.
+  transforms.test.ts), alongside a real P5 wobble block and a real P6 nearFall block. The nearFall
+  is the Book's last block event (immediately followed by `survive`), so it classifies as recover
+  and settles before the win resolves — never holds, since the next event is not `collapse`.
 -->
 <Story name="Big Climb 100x (camera follow)" args={{ book: bigClimb100x }} />
 
@@ -42,3 +43,15 @@
   proof: block lands, visibly wobbles, recovers, and the tower keeps building.
 -->
 <Story name="Wobble Win 5x" args={{ book: wobbleWin5x }} />
+
+<!--
+  10 blocks, resolves 20x in Sky. The archetype purpose-built for this exact proof (GAME_SPEC §7:
+  "one major near-fall becomes the emotional beat") — one nearFall (intensity 4, direction 1),
+  immediately followed by another block (not collapse), so it classifies as recover: critical
+  lean -> hold at peak -> counter-swing -> overshoot -> exact settle, clearly stronger than any
+  wobble in the Book, before construction continues to the win. P6's primary manual QA target.
+  P6 does not yet ship a holdForCollapse Storybook proof — no canonical fixture has a nearFall
+  immediately followed by `collapse`; that visual (nearFall -> hold -> actual collapse animation)
+  is deferred to P7, when collapse animation exists to consume the held pose.
+-->
+<Story name="Near Death Win 20x" args={{ book: nearDeathWin20x }} />

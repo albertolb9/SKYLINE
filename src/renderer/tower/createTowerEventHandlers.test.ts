@@ -1,9 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LogicalBlock, TowerModel } from '../../tower/model';
 import { playBookEvents } from '../../book/player';
-import { cleanSurvive150x, quickCollapseStreet0x, weakSurvive050x, wobbleWin5x } from '../../test-fixtures/books';
+import type { Book, BookEvent } from '../../book/schema';
+import {
+  bigClimb100x,
+  cleanSurvive150x,
+  cruelCollapseSky0x,
+  quickCollapseStreet0x,
+  weakSurvive050x,
+  wobbleWin5x,
+} from '../../test-fixtures/books';
 import { createDeferred } from '../../test-fixtures/tests/recordingHandlerMap';
 import type { TowerRenderer } from './createTowerRenderer';
+import type { NearFallResolution } from './nearFall';
 
 // Spies on the REAL applyTowerEvent (via importOriginal — behavior is unchanged, only call
 // count becomes observable) rather than adding a test-only accessor to production code. This
@@ -16,7 +25,7 @@ vi.mock('../../tower/model', async (importOriginal) => {
 });
 
 const { applyTowerEvent, buildTowerModel, fingerprintTowerModel } = await import('../../tower/model');
-const { createTowerEventHandlers } = await import('./createTowerEventHandlers');
+const { createTowerEventHandlers, classifyNearFallResolution } = await import('./createTowerEventHandlers');
 const applyTowerEventSpy = vi.mocked(applyTowerEvent);
 
 function createRecordingRenderer(): { renderer: TowerRenderer; calls: LogicalBlock[] } {
@@ -29,6 +38,44 @@ function createRecordingRenderer(): { renderer: TowerRenderer; calls: LogicalBlo
       cancel: () => {},
     },
     calls,
+  };
+}
+
+function createResolutionRecordingRenderer(): {
+  renderer: TowerRenderer;
+  resolutions: (NearFallResolution | undefined)[];
+} {
+  const resolutions: (NearFallResolution | undefined)[] = [];
+  return {
+    renderer: {
+      addBlock: async (_block, nearFallResolution) => {
+        resolutions.push(nearFallResolution);
+      },
+      cancel: () => {},
+    },
+    resolutions,
+  };
+}
+
+/** A minimal Book-shaped object whose events[0] is a nearFall block and events[1] (if given) is
+ * whatever event should be classified against — for testing classifyNearFallResolution's
+ * next-index-only rule in isolation. Not a canonical fixture, not run through validateBook (the
+ * classification function only ever reads events[index + 1].type, nothing else). */
+function bookWithNearFallFollowedBy(nextEvent?: BookEvent): Book {
+  const nearFallEvent: BookEvent = {
+    index: 0,
+    type: 'block',
+    ordinal: 1,
+    offsetU: 0,
+    rotationMd: 0,
+    behavior: 'nearFall',
+    intensity: 4,
+    direction: 1,
+  };
+  return {
+    id: 1,
+    payoutMultiplier: 0,
+    events: nextEvent ? [nearFallEvent, { ...nextEvent, index: 1 }] : [nearFallEvent],
   };
 }
 
@@ -123,5 +170,127 @@ describe('createTowerEventHandlers — logical fingerprint parity', () => {
     // model — the only way to observe it without adding a getModel accessor to production code.
     const liveModel = applyTowerEventSpy.mock.results.at(-1)?.value as TowerModel;
     expect(fingerprintTowerModel(liveModel)).toBe(fingerprintTowerModel(buildTowerModel(book)));
+  });
+});
+
+// ==========================================================================================
+// P6 — Near-Fall: classifyNearFallResolution (docs/work/TASK-P6-near-fall.md §G)
+// ==========================================================================================
+
+describe('classifyNearFallResolution — immediate-next-event-only classification', () => {
+  it('nearFall -> collapse = holdForCollapse', () => {
+    const book = bookWithNearFallFollowedBy({ index: 0, type: 'collapse', profile: 'leanLeft', intensity: 4 });
+    expect(classifyNearFallResolution(book, 0)).toBe('holdForCollapse');
+  });
+
+  it('nearFall -> block = recover', () => {
+    const book = bookWithNearFallFollowedBy({
+      index: 0,
+      type: 'block',
+      ordinal: 2,
+      offsetU: 0,
+      rotationMd: 0,
+      behavior: 'clean',
+      intensity: 0,
+      direction: 0,
+    });
+    expect(classifyNearFallResolution(book, 0)).toBe('recover');
+  });
+
+  it('nearFall -> survive = recover', () => {
+    const book = bookWithNearFallFollowedBy({ index: 0, type: 'survive', intensity: 2 });
+    expect(classifyNearFallResolution(book, 0)).toBe('recover');
+  });
+
+  it('nearFall -> moon = recover', () => {
+    const book = bookWithNearFallFollowedBy({ index: 0, type: 'moon', variant: 0 });
+    expect(classifyNearFallResolution(book, 0)).toBe('recover');
+  });
+
+  it('nearFall -> zoneChange = recover', () => {
+    const book = bookWithNearFallFollowedBy({ index: 0, type: 'zoneChange', zone: 'skyline' });
+    expect(classifyNearFallResolution(book, 0)).toBe('recover');
+  });
+
+  it('nearFall -> zoneChange -> collapse (later) = recover -- proves no forward scan', () => {
+    const book = bookWithNearFallFollowedBy({ index: 0, type: 'zoneChange', zone: 'skyline' });
+    // A collapse exists further in the array, but classification must only ever look at index+1.
+    const withLaterCollapse: Book = {
+      ...book,
+      events: [...book.events, { index: 2, type: 'collapse', profile: 'leanRight', intensity: 4 }],
+    };
+    expect(classifyNearFallResolution(withLaterCollapse, 0)).toBe('recover');
+  });
+
+  it('nearFall -> block -> ... -> collapse much later = recover -- proves classification never considers the eventual terminal outcome', () => {
+    const book = bookWithNearFallFollowedBy({
+      index: 0,
+      type: 'block',
+      ordinal: 2,
+      offsetU: 0,
+      rotationMd: 0,
+      behavior: 'clean',
+      intensity: 0,
+      direction: 0,
+    });
+    const withLaterCollapse: Book = {
+      ...book,
+      events: [...book.events, { index: 2, type: 'collapse', profile: 'leanRight', intensity: 4 }],
+    };
+    expect(classifyNearFallResolution(withLaterCollapse, 0)).toBe('recover');
+  });
+
+  it('missing next event (malformed/edge case) defensively defaults to recover', () => {
+    const book = bookWithNearFallFollowedBy(undefined);
+    expect(classifyNearFallResolution(book, 0)).toBe('recover');
+  });
+
+  it('matches real fixture data: cruelCollapseSky0x\'s nearFall (index 7) classifies as recover, despite the Book eventually collapsing 7 events later', () => {
+    expect(classifyNearFallResolution(cruelCollapseSky0x, 7)).toBe('recover');
+  });
+
+  it('matches real fixture data: bigClimb100x\'s nearFall (index 20) classifies as recover, since the immediate next event is survive, not collapse', () => {
+    expect(classifyNearFallResolution(bigClimb100x, 20)).toBe('recover');
+  });
+});
+
+describe('createTowerEventHandlers — block handler wiring for nearFall', () => {
+  it('passes the classified resolution to renderer.addBlock only for nearFall blocks, and never pre-applies/dispatches the following collapse', async () => {
+    const book = bookWithNearFallFollowedBy({ index: 0, type: 'collapse', profile: 'leanLeft', intensity: 4 });
+    // bookWithNearFallFollowedBy's Book isn't a full playable Book (no towerStart/finalWin) --
+    // this test drives the handler map directly against the two events, mirroring how
+    // playBookEvent would, without needing a fully valid Book for this narrow wiring check.
+    const { renderer, resolutions } = createResolutionRecordingRenderer();
+    const handlers = createTowerEventHandlers(renderer);
+    const context = { book };
+
+    await handlers.block(book.events[0] as Extract<BookEvent, { type: 'block' }>, context);
+
+    expect(resolutions).toEqual(['holdForCollapse']);
+  });
+
+  it('passes undefined resolution for non-nearFall blocks', async () => {
+    const book: Book = {
+      id: 1,
+      payoutMultiplier: 0,
+      events: [
+        {
+          index: 0,
+          type: 'block',
+          ordinal: 1,
+          offsetU: 0,
+          rotationMd: 0,
+          behavior: 'clean',
+          intensity: 0,
+          direction: 0,
+        },
+      ],
+    };
+    const { renderer, resolutions } = createResolutionRecordingRenderer();
+    const handlers = createTowerEventHandlers(renderer);
+
+    await handlers.block(book.events[0] as Extract<BookEvent, { type: 'block' }>, { book });
+
+    expect(resolutions).toEqual([undefined]);
   });
 });
