@@ -42,7 +42,16 @@ export function createTowerEventHandlers(renderer: TowerRenderer): BookEventHand
       await renderer.addBlock(block, nearFallResolution);
     },
     zoneChange: advanceOnly,
-    collapse: advanceOnly,
+    // P7 (docs/work/TASK-P7-collapse.md): applyTowerEvent commits P3's authoritative
+    // collapsed(profile) terminal state FIRST, then the renderer only dramatizes it --
+    // profile/intensity are read unchanged from the Book's own event, never decided here. After
+    // this Promise resolves, P2 may continue to the following economic/result events
+    // (setTotalWin/finalWin) -- collapse ends the NARRATIVE/tower event stream, not the Book
+    // itself.
+    collapse: async (event) => {
+      model = applyTowerEvent(model, event);
+      await renderer.collapse(event.profile, event.intensity);
+    },
     survive: advanceOnly,
     moon: advanceOnly,
     setWin: advanceOnly,

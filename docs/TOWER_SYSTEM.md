@@ -253,3 +253,16 @@ Playing the same Book repeatedly must produce the same fingerprint byte-for-byte
 - reading FPS to choose behavior.
 - visual seed altering payout or Book path.
 - renderer silently correcting invalid Book fields.
+
+## 19. Static tower base
+
+The principal visual tower base remains static during wobble, nearFall, recovery and collapse; it
+moves only with the world/camera container. The moving tower root pivots around the fixed support
+point at the top-center of that base (DECISIONS.md D-037).
+
+The visual base is renderer-owned presentation and is not a logical Book block — it does not
+consume a `block` event, does not affect block ordinal/`TowerModel`/fingerprint, and does not
+participate in payout/outcome logic. Its top-center is the same fixed support point already used
+as `TowerRoot`'s pivot (§8): horizontally aligned with the tower origin U=0, vertically aligned
+with the tower's base/ground plane. Exact base dimensions/style are prototype-tunable, per §7's
+versioned-preset convention (`docs/work/TASK-P7-static-base.md`).

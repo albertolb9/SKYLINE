@@ -1,15 +1,18 @@
-// Pixi-facing tower renderer for the P4/P5/P6 greybox phases (docs/work/TASK-P4-basic-renderer.md,
-// docs/work/TASK-P5-wobble-recovery.md, docs/work/TASK-P6-near-fall.md). Consumes already-
-// committed LogicalBlock data; never decides placement/outcome and never reads TowerModel/
-// BookEvent itself — see transforms.ts for the pure logical->pixel math, wobble.ts/nearFall.ts for
-// the pure motion-curve math this wraps.
+// Pixi-facing tower renderer for the P4-P7 greybox phases (docs/work/TASK-P4-basic-renderer.md,
+// docs/work/TASK-P5-wobble-recovery.md, docs/work/TASK-P6-near-fall.md, docs/work/
+// TASK-P7-collapse.md). Consumes already-committed LogicalBlock data; never decides placement/
+// outcome and never reads TowerModel/BookEvent itself — see transforms.ts for the pure
+// logical->pixel math, wobble.ts/nearFall.ts/collapse.ts for the pure motion-curve math this
+// wraps.
 
 import { Container, Graphics, type Application, type Ticker } from 'pixi.js';
 import type { LogicalBlock } from '../../tower/model';
+import type { CollapseIntensity, CollapseProfile } from '../../book/schema';
 import {
   DEFAULT_TOWER_VIEWPORT_TUNING,
   computeBlockTransform,
   computeCameraOffsetY,
+  computeTowerSupportPivot,
   computeTowerViewportConfig,
   ease,
   rotationMdToRadians,
@@ -23,9 +26,22 @@ import {
   computeNearFallLeanMd,
   type NearFallResolution,
 } from './nearFall';
+import {
+  COLLAPSE_PRESETS_V1_BY_INTENSITY,
+  computeCollapseFraction,
+  computeCollapseTargetLeanMd,
+} from './collapse';
 
 const BLOCK_FILL_COLOR = 0x3a3f4b;
 const BLOCK_STROKE_COLOR = 0x9aa4b8;
+
+// Static tower base (docs/work/TASK-P7-static-base.md) -- GREYBOX TUNING, NOT LOCKED VALUES.
+// Renderer-presentation-only constants; base geometry deliberately stays local to this file
+// rather than transforms.ts, since it is a drawing/sizing concern, not logical->pixel math.
+const BASE_WIDTH_MULTIPLIER_V1 = 1.25; // wider than one block -- reads as a foundation lip
+const BASE_HEIGHT_BLOCKS_V1 = 3; // in units of blockHeightPx
+const BASE_FILL_COLOR = 0x2a2e38; // slightly darker than BLOCK_FILL_COLOR, same visual family
+const BASE_STROKE_COLOR = BLOCK_STROKE_COLOR;
 
 export class TowerRenderCancelledError extends Error {
   constructor() {
@@ -36,6 +52,7 @@ export class TowerRenderCancelledError extends Error {
 
 export interface TowerRenderer {
   addBlock(block: LogicalBlock, nearFallResolution?: NearFallResolution): Promise<void>;
+  collapse(profile: CollapseProfile, intensity: CollapseIntensity): Promise<void>;
   cancel(): void;
 }
 
@@ -47,18 +64,40 @@ function createBlockGraphics(config: TowerRenderConfig): Graphics {
 }
 
 /**
+ * Static tower base (docs/work/TASK-P7-static-base.md). Drawn with its TOP edge at local y=0,
+ * horizontally centered -- the caller positions it so that local origin lands exactly on the
+ * shared tower support pivot, making the rendered rectangle's top-center coincide with it.
+ */
+function createBaseGraphics(config: TowerRenderConfig): Graphics {
+  const width = config.blockWidthPx * BASE_WIDTH_MULTIPLIER_V1;
+  const height = config.blockHeightPx * BASE_HEIGHT_BLOCKS_V1;
+  return new Graphics()
+    .rect(-width / 2, 0, width, height)
+    .fill(BASE_FILL_COLOR)
+    .stroke({ width: 2, color: BASE_STROKE_COLOR });
+}
+
+/**
  * `app.screen` dimensions are read exactly once, at creation, to derive the viewport-scaled
  * render config — no resize-reactivity (docs/work/TASK-P4-basic-renderer.md). At most one
  * `addBlock` animation is ever in flight at a time in practice (the P2 Book Player awaits each
  * handler fully before the next), so a single `activeCancel` slot is sufficient.
  *
- * Container hierarchy (docs/work/TASK-P5-wobble-recovery.md §13-14, unchanged by P6):
- *   app.stage -> cameraContainer (camera translation only, .y) -> wobbleRoot (transient whole-
- *   tower rotation only, driven by wobble OR nearFall curves, never both at once) -> block
- *   graphics (unchanged addChild target/transform values). wobbleRoot's pivot and position are
- *   both set once, at creation, to the fixed tower-base support point — horizontally aligned with
- *   the tower origin U=0 and vertically aligned with the tower's base/ground plane, independent of
- *   any individual block's authored offset/rotation.
+ * Container hierarchy (docs/work/TASK-P5-wobble-recovery.md §13-14; extended by
+ * docs/work/TASK-P7-static-base.md, DECISIONS.md D-037):
+ *   app.stage -> cameraContainer (camera translation only, .y)
+ *                  |- base (static visual, renderer presentation only -- never rotates, never
+ *                  |   touched by addBlock/collapse/cancel; inherits cameraContainer's
+ *                  |   translation like any other sibling)
+ *                  `- wobbleRoot (whole-tower rotation only, driven by wobble OR nearFall OR
+ *                      collapse, never concurrently — P2's strict one-event-at-a-time sequencing
+ *                      guarantees this) -> block graphics (unchanged addChild target/transform
+ *                      values)
+ * `base` and `wobbleRoot` are siblings, both direct children of `cameraContainer` -- `base` is
+ * added first (renders behind the moving tower where the two may ever overlap during an active
+ * lean; purely a visual-tuning choice, not an architectural one). Both consume the exact same
+ * `computeTowerSupportPivot(config)` value: `wobbleRoot`'s pivot/position, and `base`'s top-center,
+ * are provably identical rather than two independently-authored copies that could drift apart.
  */
 export function createTowerRenderer(
   app: Application,
@@ -67,16 +106,21 @@ export function createTowerRenderer(
   const tuning: TowerViewportTuning = { ...DEFAULT_TOWER_VIEWPORT_TUNING, ...tuningOverrides };
   const config = computeTowerViewportConfig(app.screen.width, app.screen.height, tuning);
 
+  const pivot = computeTowerSupportPivot(config);
+
   const cameraContainer = new Container();
   app.stage.addChild(cameraContainer);
 
+  const base = createBaseGraphics(config);
+  base.x = pivot.x;
+  base.y = pivot.y;
+  cameraContainer.addChild(base);
+
   const wobbleRoot = new Container();
-  const pivotX = config.originX;
-  const pivotY = config.originY + config.blockHeightPx / 2;
-  wobbleRoot.pivot.x = pivotX;
-  wobbleRoot.pivot.y = pivotY;
-  wobbleRoot.x = pivotX;
-  wobbleRoot.y = pivotY;
+  wobbleRoot.pivot.x = pivot.x;
+  wobbleRoot.pivot.y = pivot.y;
+  wobbleRoot.x = pivot.x;
+  wobbleRoot.y = pivot.y;
   cameraContainer.addChild(wobbleRoot);
 
   let cancelled = false;
@@ -184,14 +228,66 @@ export function createTowerRenderer(
     });
   }
 
+  /**
+   * P7 collapse (docs/work/TASK-P7-collapse.md). `profile` is the sole authoritative source of
+   * the terminal lean's sign; `intensity` selects only its magnitude -- neither is ever derived
+   * from a preceding block's direction, offsetU, rotationMd, tower geometry, or the renderer's
+   * own current rotation. The starting rotation is snapshotted exactly once, directly in radians
+   * -- zero for a direct collapse, or the exact P6 holdForCollapse pose for a held collapse --
+   * with NO radians->millidegrees->radians round trip: `startRotationRad` is used as-is, and
+   * `targetRotationRad` is computed once via the already-existing `rotationMdToRadians`. The same
+   * lerp formula handles a direct start, a same-sign held start, and an opposite-sign held start
+   * identically -- there is no branch for "opposite direction." At settle, rotation is assigned
+   * exactly `targetRotationRad` and is never reset afterward by anything in this module; it
+   * persists for the remainder of the rendered round (through any later economic/result events)
+   * until `cancel()`/teardown.
+   */
+  function collapse(profile: CollapseProfile, intensity: CollapseIntensity): Promise<void> {
+    if (cancelled) return Promise.reject(new TowerRenderCancelledError());
+
+    const preset = COLLAPSE_PRESETS_V1_BY_INTENSITY[intensity];
+    const startRotationRad = wobbleRoot.rotation; // exact snapshot, zero conversion
+    const targetRotationRad = rotationMdToRadians(computeCollapseTargetLeanMd(profile, preset));
+
+    return new Promise<void>((resolve, reject) => {
+      let elapsedMs = 0;
+
+      const onTick = (ticker: Ticker) => {
+        elapsedMs += ticker.deltaMS;
+        const fraction = computeCollapseFraction(elapsedMs / preset.durationMs); // clamps internally
+        wobbleRoot.rotation = startRotationRad + (targetRotationRad - startRotationRad) * fraction;
+        if (elapsedMs >= preset.durationMs) settle();
+      };
+
+      const settle = () => {
+        wobbleRoot.rotation = targetRotationRad; // exact terminal pose, no drift
+        app.ticker.remove(onTick);
+        activeCancel = undefined;
+        resolve();
+      };
+
+      activeCancel = () => {
+        app.ticker.remove(onTick);
+        activeCancel = undefined;
+        reject(new TowerRenderCancelledError());
+      };
+
+      app.ticker.add(onTick);
+    });
+  }
+
   function cancel(): void {
     cancelled = true;
     // Unconditionally restore root identity, even if nothing is currently active (e.g. a
-    // holdForCollapse already resolved and left the root deliberately tilted, or activeCancel is
-    // already undefined for any other reason) -- avoids any stale tilt surviving teardown.
+    // holdForCollapse/collapse already resolved and left the root deliberately tilted, or
+    // activeCancel is already undefined for any other reason) -- avoids any stale tilt surviving
+    // teardown. Harmless even after a completed collapse: cancel() is only ever invoked from
+    // TowerStage.svelte's onBeforeDestroy, i.e. the instant before the whole Pixi Application is
+    // destroyed, so resetting a rotation that is about to stop being rendered has no observable
+    // effect.
     wobbleRoot.rotation = 0;
     activeCancel?.();
   }
 
-  return { addBlock, cancel };
+  return { addBlock, collapse, cancel };
 }

@@ -163,21 +163,22 @@ Fixture `payoutMultiplier` values use the prototype Book convention from `BOOK_S
 
 **Exit:** near-death win and cruel collapse share a convincing initial danger language but resolve differently.
 
-### P7 — Collapse / survive
+### P7 — Collapse
 
-- left/right collapse;
+- left/right collapse.
+
+**Exit:** losses are instantly legible.
+
+### P8 — Survive / result / zones / camera
+
 - final stable survive;
-- simple result overlay from fixture payout.
-
-**Exit:** losses/wins are instantly legible.
-
-### P8 — Zones / camera
-
+- simple result overlay from fixture payout;
 - placeholder visual differences for five normal zones;
 - deterministic zone transitions;
 - Moon placeholder sequence.
 
-**Exit:** big/Space/Moon fixtures communicate altitude even with rectangles/gradients.
+**Exit:** wins are instantly legible; big/Space/Moon fixtures communicate altitude even with
+rectangles/gradients.
 
 ### P9 — Storybook / QA surface
 

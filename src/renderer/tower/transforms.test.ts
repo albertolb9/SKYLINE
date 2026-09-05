@@ -5,6 +5,7 @@ import {
   DEFAULT_TOWER_VIEWPORT_TUNING,
   computeBlockTransform,
   computeCameraOffsetY,
+  computeTowerSupportPivot,
   computeTowerViewportConfig,
   ease,
   logicalYFromOrdinal,
@@ -126,6 +127,36 @@ describe('computeBlockTransform', () => {
     // prior blocks, two blocks sharing offsetU at different depths would NOT share x.
     expect(transformB.x).toBe(transformA.x);
     expect(transformA.x).toBeCloseTo(config.originX + 2000 * scale);
+  });
+});
+
+describe('computeTowerSupportPivot', () => {
+  it('matches the fixed formula (originX, originY + blockHeightPx / 2) for a real viewport-derived config', () => {
+    const config = computeTowerViewportConfig(390, 844, DEFAULT_TOWER_VIEWPORT_TUNING);
+    expect(computeTowerSupportPivot(config)).toEqual({
+      x: config.originX,
+      y: config.originY + config.blockHeightPx / 2,
+    });
+  });
+
+  it('matches the same formula for a second, differently-shaped viewport', () => {
+    const config = computeTowerViewportConfig(1280, 800, DEFAULT_TOWER_VIEWPORT_TUNING);
+    expect(computeTowerSupportPivot(config)).toEqual({
+      x: config.originX,
+      y: config.originY + config.blockHeightPx / 2,
+    });
+  });
+
+  it('for a hand-built config, is exactly the CENTER Y plus half a block height below it', () => {
+    const config: TowerRenderConfig = {
+      originX: 200,
+      originY: 800,
+      blockWidthPx: 100,
+      blockHeightPx: 40,
+      dropDurationMs: 450,
+      cameraSafeBandPx: 96,
+    };
+    expect(computeTowerSupportPivot(config)).toEqual({ x: 200, y: 820 });
   });
 });
 

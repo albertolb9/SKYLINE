@@ -35,6 +35,7 @@ function createRecordingRenderer(): { renderer: TowerRenderer; calls: LogicalBlo
       addBlock: async (block) => {
         calls.push(block);
       },
+      collapse: async () => {},
       cancel: () => {},
     },
     calls,
@@ -51,6 +52,7 @@ function createResolutionRecordingRenderer(): {
       addBlock: async (_block, nearFallResolution) => {
         resolutions.push(nearFallResolution);
       },
+      collapse: async () => {},
       cancel: () => {},
     },
     resolutions,
@@ -104,6 +106,7 @@ describe('createTowerEventHandlers — sequential completion', () => {
         addBlockCallCount += 1;
         await gate.promise;
       },
+      collapse: async () => {},
       cancel: () => {},
     };
 
@@ -292,5 +295,114 @@ describe('createTowerEventHandlers — block handler wiring for nearFall', () =>
     await handlers.block(book.events[0] as Extract<BookEvent, { type: 'block' }>, { book });
 
     expect(resolutions).toEqual([undefined]);
+  });
+});
+
+// ==========================================================================================
+// P7 — Collapse: handler wiring (docs/work/TASK-P7-collapse.md)
+// ==========================================================================================
+
+function createCollapseRecordingRenderer(gate?: Promise<void>): {
+  renderer: TowerRenderer;
+  calls: { profile: string; intensity: number }[];
+} {
+  const calls: { profile: string; intensity: number }[] = [];
+  return {
+    renderer: {
+      addBlock: async () => {},
+      collapse: async (profile, intensity) => {
+        calls.push({ profile, intensity });
+        if (gate) await gate;
+      },
+      cancel: () => {},
+    },
+    calls,
+  };
+}
+
+describe('createTowerEventHandlers — collapse handler wiring', () => {
+  beforeEach(() => {
+    applyTowerEventSpy.mockClear();
+  });
+
+  it('calls applyTowerEvent exactly once and renderer.collapse exactly once, with the event\'s own unmodified profile/intensity', async () => {
+    const book = quickCollapseStreet0x; // real fixture: collapse('leanLeft', 3)
+    const { renderer, calls } = createCollapseRecordingRenderer();
+
+    await playBookEvents(book, createTowerEventHandlers(renderer));
+
+    expect(calls).toEqual([{ profile: 'leanLeft', intensity: 3 }]);
+    const collapseEvent = book.events.find((e) => e.type === 'collapse');
+    expect(applyTowerEventSpy.mock.calls.some(([, event]) => event === collapseEvent)).toBe(true);
+    expect(applyTowerEventSpy.mock.calls.filter(([, event]) => event.type === 'collapse')).toHaveLength(1);
+  });
+
+  it('passes leanRight/intensity exactly as authored for a different real fixture', async () => {
+    const { renderer, calls } = createCollapseRecordingRenderer();
+    const book: Book = {
+      id: 999,
+      payoutMultiplier: 0,
+      events: [
+        { index: 0, type: 'towerStart', visualSeed: 1, archetype: 'quickCollapse', pace: 'quick' },
+        { index: 1, type: 'collapse', profile: 'leanRight', intensity: 2 },
+        { index: 2, type: 'setTotalWin', amount: 0 },
+        { index: 3, type: 'finalWin', amount: 0 },
+      ],
+    };
+
+    await playBookEvents(book, createTowerEventHandlers(renderer));
+
+    expect(calls).toEqual([{ profile: 'leanRight', intensity: 2 }]);
+  });
+
+  it('awaits the renderer.collapse Promise before resolving -- economic events do not advance until collapse\'s animation completes', async () => {
+    const gate = createDeferred<void>();
+    let renderedCollapseCallCount = 0;
+    const renderer: TowerRenderer = {
+      addBlock: async () => {},
+      collapse: async () => {
+        renderedCollapseCallCount += 1;
+        await gate.promise;
+      },
+      cancel: () => {},
+    };
+    const book: Book = {
+      id: 998,
+      payoutMultiplier: 0,
+      events: [
+        { index: 0, type: 'towerStart', visualSeed: 1, archetype: 'quickCollapse', pace: 'quick' },
+        { index: 1, type: 'collapse', profile: 'leanLeft', intensity: 1 },
+        { index: 2, type: 'setTotalWin', amount: 0 },
+        { index: 3, type: 'finalWin', amount: 0 },
+      ],
+    };
+
+    const playing = playBookEvents(book, createTowerEventHandlers(renderer));
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(renderedCollapseCallCount).toBe(1);
+    // setTotalWin/finalWin are advanceOnly and synchronous once reached -- their effect (P2
+    // completing) cannot be observed yet because collapse's own Promise is still gated.
+    expect(applyTowerEventSpy.mock.calls.map((call) => call[1].type)).toEqual(['towerStart', 'collapse']);
+
+    gate.resolve();
+    await playing;
+    expect(applyTowerEventSpy.mock.calls.map((call) => call[1].type)).toEqual([
+      'towerStart',
+      'collapse',
+      'setTotalWin',
+      'finalWin',
+    ]);
+  });
+
+  it('leaves the Book and its events byte-identical after a real collapse playback', async () => {
+    const book = cruelCollapseSky0x;
+    const before = JSON.stringify(book);
+    const { renderer } = createCollapseRecordingRenderer();
+
+    await playBookEvents(book, createTowerEventHandlers(renderer));
+
+    expect(JSON.stringify(book)).toBe(before);
   });
 });

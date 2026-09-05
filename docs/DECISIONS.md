@@ -41,6 +41,7 @@
 | D-034 | OPEN | Turbo/Fastplay in production. Do not implement in prototype. |
 | D-035 | LOCKED | SDD/repository documents, not chat history, govern implementation. Claude implements specs rather than inventing product. |
 | D-036 | ACCEPTED | `block.offsetU` is an absolute horizontal displacement from the fixed tower origin (U=0), not cumulative/relative to the previous block. |
+| D-037 | ACCEPTED | The principal visual tower base remains static during wobble, nearFall, recovery and collapse; it moves only with the world/camera container. The moving tower root pivots around the fixed support point at the top-center of that base. The visual base is renderer-owned presentation and is not a logical Book block. |
 
 ## Decision details
 
@@ -67,6 +68,15 @@
 ### D-036 — offsetU is absolute, not cumulative
 **Reason:** TOWER_SYSTEM.md §3's original phrasing ("relative to the intended center/support position") was genuinely ambiguous between an absolute-from-origin reading and a delta-from-previous-block reading. P4 (renderer) needed this resolved explicitly before the logical→pixel transform could be implemented; the ambiguity was not decided by the prior wording alone.
 **Impact:** Renderer computes `pixelX = originX + offsetU × scale` per block, independently of every other block — no running horizontal accumulation is threaded between blocks. Does not change P3's `LogicalBlock`/`TowerModel` shape: `offsetU` was already stored as-is; this clarifies only how the renderer interprets that already-stored value.
+
+### D-037 — Static tower base
+**Reason:** Wobble/nearFall/collapse motion needs a stable visual reference so a lean or a
+collapse reads as motion relative to something fixed, rather than the whole tower silhouette
+drifting in a void. Also closes a gap TOWER_SYSTEM.md left implicit: the tower's own base/ground
+plane was never a rendered element, only an abstract pivot coordinate.
+**Impact:** Renderer gains one static sibling container/graphic alongside the existing moving
+tower root; zero impact on Book schema, TowerModel, fingerprints, or payout — this is
+renderer-owned presentation only (`docs/work/TASK-P7-static-base.md`).
 
 ### D-028 / D-030 — Round closing
 **Reason:** Current official Stake sources distinguish automatic close, `end-round`, and bet-type timing. This is platform-sensitive.  

@@ -123,6 +123,7 @@ Renderer responsibilities:
 
 - convert logical units to pixels;
 - animate drops/impacts/wobbles/slides/near-falls/recovery/collapse;
+- render a static tower base/support presentation (renderer-owned, not a logical Book block — DECISIONS.md D-037);
 - camera tracking;
 - environmental transitions;
 - VFX/audio triggers;

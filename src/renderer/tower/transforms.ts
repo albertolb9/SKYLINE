@@ -80,6 +80,21 @@ export interface BlockPixelTransform {
   readonly rotation: number;
 }
 
+/** Fixed tower-base support point (docs/work/TASK-P5-wobble-recovery.md, extended by
+ * docs/work/TASK-P7-static-base.md): horizontally aligned with the tower origin U=0, vertically
+ * aligned with the tower's base/ground plane (the fixed Y an ordinal-1 block's bottom edge would
+ * occupy with zero authored offset/rotation). Independent of any individual block's committed
+ * pose. This is the single source of truth for both the moving tower root's pivot/position AND
+ * the static visual base's top-center, so the two can never silently drift apart. */
+export interface TowerSupportPivot {
+  readonly x: number;
+  readonly y: number;
+}
+
+export function computeTowerSupportPivot(config: TowerRenderConfig): TowerSupportPivot {
+  return { x: config.originX, y: config.originY + config.blockHeightPx / 2 };
+}
+
 /**
  * block.offsetU is the block center's ABSOLUTE horizontal displacement from the fixed tower
  * origin U=0 — not accumulated from the previous block (TOWER_SYSTEM.md §3, DECISIONS.md D-036).
